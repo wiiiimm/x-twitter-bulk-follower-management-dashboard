@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ChangeEvent } from "react";
-import { AlertCircleIcon, LoaderCircleIcon } from "lucide-react";
+import { AlertCircleIcon } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -25,9 +25,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { UnfollowQueuePanel } from "@/components/unfollow-queue-panel";
+import { useUnfollowQueue } from "@/hooks/use-unfollow-queue";
 import { parseFollowsCsv } from "@/lib/csv";
-import { readAccessToken } from "@/lib/browser-token";
-import { refreshUserAccessToken } from "@/lib/oauth-client";
 import {
   CUTOFF_MAX_LOCAL,
   CUTOFF_MIN_LOCAL,
@@ -44,14 +44,8 @@ import {
 } from "@/lib/follows";
 import {
   UNFOLLOW_LIMIT_PER_WINDOW,
-  emptyRateLimit,
   formatGapRange,
   formatWait,
-  parseRateLimitPayload,
-  recordUnfollowAttempt,
-  sleepMs,
-  waitMsForUnfollow,
-  type RateLimitInfo,
 } from "@/lib/unfollow-pace";
 import {
   addToWhitelist,
@@ -66,19 +60,6 @@ export type SignedInUser = {
   username: string;
   name: string;
 };
-
-type QueueJob =
-  | { kind: "idle" }
-  | {
-      kind: "waiting";
-      completed: number;
-      total: number;
-      handle: string;
-      until: number;
-      reason: "pace" | "rate-limit";
-    }
-  | { kind: "working"; completed: number; total: number; handle: string }
-  | { kind: "paused"; remaining: number; completed: number; total: number };
 
 type ConfirmState =
   | { open: false }
@@ -112,73 +93,6 @@ function statusVariant(status: string): "outline" | "secondary" | "destructive" 
   }
 }
 
-type UnfollowCallResult =
-  | { ok: true; rateLimit: RateLimitInfo | null }
-  | { ok: false; status: number; error: string; rateLimit: RateLimitInfo | null };
-
-async function postUnfollow(
-  targetUserId: string,
-  sourceUserId: string,
-): Promise<UnfollowCallResult> {
-  async function send(token: string): Promise<Response> {
-    return fetch("/api/unfollow", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ targetUserId, sourceUserId }),
-    });
-  }
-
-  let token = readAccessToken();
-  if (!token) {
-    return {
-      ok: false,
-      status: 401,
-      error: "Not signed in. Generate an access token on the login screen.",
-      rateLimit: null,
-    };
-  }
-  let response = await send(token);
-  if (response.status === 401) {
-    const refreshed = await refreshUserAccessToken();
-    if (refreshed) {
-      token = refreshed;
-      response = await send(token);
-    }
-  }
-  let payload: unknown = null;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = null;
-  }
-  const rateLimit =
-    payload && typeof payload === "object" && "rateLimit" in payload
-      ? parseRateLimitPayload((payload as { rateLimit: unknown }).rateLimit)
-      : null;
-  if (!response.ok) {
-    const error =
-      payload && typeof payload === "object" && "error" in payload
-        ? String((payload as { error: unknown }).error)
-        : `Unfollow failed (${response.status}).`;
-    return { ok: false, status: response.status, error, rateLimit };
-  }
-  return { ok: true, rateLimit };
-}
-
-function dedupeRows(rows: FollowRow[]): FollowRow[] {
-  const seen = new Set<string>();
-  const next: FollowRow[] = [];
-  for (const row of rows) {
-    if (seen.has(row.accountId)) continue;
-    seen.add(row.accountId);
-    next.push(row);
-  }
-  return next;
-}
-
 export function PruneApp({
   user,
   onLogout,
@@ -188,11 +102,6 @@ export function PruneApp({
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const skipCutoffUncheck = useRef(true);
-  const queueRef = useRef<FollowRow[]>([]);
-  const runningRef = useRef(false);
-  const abortRef = useRef(false);
-  const pausedRef = useRef(false);
-  const lastRateLimitRef = useRef<RateLimitInfo | null>(null);
   const whitelistIds = useSyncExternalStore(
     subscribeWhitelist,
     getWhitelistSnapshot,
@@ -207,9 +116,27 @@ export function PruneApp({
   const [cutoff, setCutoff] = useState(() => daysAgoLocal(90));
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
-  const [job, setJob] = useState<QueueJob>({ kind: "idle" });
   const [confirm, setConfirm] = useState<ConfirmState>({ open: false });
   const [now, setNow] = useState(() => Date.now());
+
+  const {
+    job,
+    queuedRows,
+    inFlightId,
+    sessionUnfollowed,
+    enqueueUnfollows,
+    removeQueued,
+    dropQueuedIds,
+    pauseQueue,
+    resumeQueue,
+    clearQueue,
+  } = useUnfollowQueue({
+    user,
+    whitelisted,
+    setRows,
+    setSelectedIds,
+    setActionError,
+  });
 
   useEffect(() => {
     if (skipCutoffUncheck.current) {
@@ -240,6 +167,16 @@ export function PruneApp({
   const selectedFiltered = useMemo(
     () => selectableFiltered.filter((row) => selectedIds.has(row.accountId)),
     [selectableFiltered, selectedIds],
+  );
+
+  const queuedIds = useMemo(
+    () => new Set(queuedRows.map((row) => row.accountId)),
+    [queuedRows],
+  );
+
+  const selectedForUnfollow = useMemo(
+    () => selectedFiltered.filter((row) => !queuedIds.has(row.accountId)),
+    [selectedFiltered, queuedIds],
   );
 
   const whitelistedFilteredCount = filtered.length - selectableFiltered.length;
@@ -319,149 +256,13 @@ export function PruneApp({
       for (const id of ids) next.delete(id);
       return next;
     });
-    const blocked = new Set(ids);
-    queueRef.current = queueRef.current.filter((row) => !blocked.has(row.accountId));
+    dropQueuedIds(ids);
   }
 
   function removeWhitelist(accountId: string) {
     removeFromWhitelist(accountId);
   }
 
-  async function runQueue() {
-    if (runningRef.current) return;
-    runningRef.current = true;
-    abortRef.current = false;
-    const failures: string[] = [];
-    const totalAtStart = queueRef.current.length;
-    let completed = 0;
-
-    while (queueRef.current.length > 0 && !abortRef.current) {
-      const target = queueRef.current[0];
-      if (getWhitelistSnapshot().includes(target.accountId) || target.accountId === user.id) {
-        queueRef.current = queueRef.current.slice(1);
-        continue;
-      }
-
-      const waitMs = waitMsForUnfollow(Date.now(), lastRateLimitRef.current);
-      if (waitMs > 0) {
-        const until = Date.now() + waitMs;
-        const reason =
-          lastRateLimitRef.current?.remaining === 0 ||
-          (lastRateLimitRef.current?.retryAfterSeconds ?? 0) > 0
-            ? "rate-limit"
-            : "pace";
-        setJob({
-          kind: "waiting",
-          completed,
-          total: completed + queueRef.current.length,
-          handle: displayHandle(target.handle),
-          until,
-          reason,
-        });
-        const slept = await sleepMs(waitMs, () => abortRef.current);
-        lastRateLimitRef.current = null;
-        if (slept === "aborted") break;
-      }
-
-      if (abortRef.current) break;
-
-      setJob({
-        kind: "working",
-        completed,
-        total: Math.max(totalAtStart, completed + queueRef.current.length),
-        handle: displayHandle(target.handle),
-      });
-
-      const result = await postUnfollow(target.accountId, user.id);
-      recordUnfollowAttempt();
-      lastRateLimitRef.current = result.rateLimit;
-
-      if (!result.ok && result.status === 429) {
-        if (
-          !lastRateLimitRef.current ||
-          (lastRateLimitRef.current.retryAfterSeconds == null &&
-            lastRateLimitRef.current.resetAt == null &&
-            lastRateLimitRef.current.remaining !== 0)
-        ) {
-          lastRateLimitRef.current = {
-            ...emptyRateLimit(),
-            remaining: 0,
-            retryAfterSeconds: 60,
-          };
-        }
-        continue;
-      }
-
-      queueRef.current = queueRef.current.slice(1);
-      completed += 1;
-
-      if (result.ok) {
-        setRows((current) => current.filter((row) => row.accountId !== target.accountId));
-        setSelectedIds((current) => {
-          const next = new Set(current);
-          next.delete(target.accountId);
-          return next;
-        });
-      } else {
-        failures.push(`${displayHandle(target.handle)}: ${result.error}`);
-        setActionError(failures.join("\n"));
-      }
-    }
-
-    runningRef.current = false;
-    if (abortRef.current && pausedRef.current && queueRef.current.length > 0) {
-      setJob({
-        kind: "paused",
-        remaining: queueRef.current.length,
-        completed,
-        total: completed + queueRef.current.length,
-      });
-      return;
-    }
-    if (abortRef.current) {
-      setJob({ kind: "idle" });
-      return;
-    }
-    setJob({ kind: "idle" });
-    if (failures.length > 0) {
-      setActionError(failures.join("\n"));
-    }
-  }
-
-  function enqueueUnfollows(targets: FollowRow[]) {
-    const allowed = dedupeRows(
-      targets.filter((row) => !whitelisted.has(row.accountId) && row.accountId !== user.id),
-    );
-    if (allowed.length === 0) return;
-    const queuedIds = new Set(queueRef.current.map((row) => row.accountId));
-    const added = allowed.filter((row) => !queuedIds.has(row.accountId));
-    if (added.length === 0) return;
-    queueRef.current = [...queueRef.current, ...added];
-    setConfirm({ open: false });
-    setActionError(null);
-    if (!runningRef.current && !pausedRef.current) void runQueue();
-  }
-
-  function pauseQueue() {
-    pausedRef.current = true;
-    abortRef.current = true;
-  }
-
-  function resumeQueue() {
-    pausedRef.current = false;
-    abortRef.current = false;
-    if (queueRef.current.length === 0) return;
-    void runQueue();
-  }
-
-  function stopQueue() {
-    pausedRef.current = false;
-    abortRef.current = true;
-    queueRef.current = [];
-    setJob({ kind: "idle" });
-  }
-
-  const busy = job.kind === "waiting" || job.kind === "working";
   const confirmCount = confirm.open
     ? confirm.mode === "one"
       ? 1
@@ -475,19 +276,21 @@ export function PruneApp({
   const queueStatus = (() => {
     switch (job.kind) {
       case "idle":
-        return null;
+        return queuedRows.length > 0 ? `${queuedRows.length} in queue · press play` : null;
       case "paused":
-        return `Paused · ${job.completed} done · ${job.remaining} left in queue`;
+        return queuedRows.length > 0
+          ? `Paused · ${queuedRows.length} waiting · press play`
+          : null;
       case "waiting": {
         const remainingMs = Math.max(0, job.until - now);
         const why =
           job.reason === "rate-limit"
             ? "X rate limit"
             : `random ${formatGapRange()} gap`;
-        return `Waiting ${formatWait(remainingMs)} (${why}) then ${job.handle} · ${job.completed}/${job.total}`;
+        return `Waiting ${formatWait(remainingMs)} (${why}) then ${job.handle}`;
       }
       case "working":
-        return `Unfollowing ${job.handle} · ${job.completed + 1}/${job.total}`;
+        return `Unfollowing ${job.handle}`;
       default: {
         const exhaustive: never = job;
         return exhaustive;
@@ -586,9 +389,9 @@ export function PruneApp({
           </div>
           <p className="text-xs text-muted-foreground">
             Showing accounts whose last post is before the cutoff, or who have never posted / unknown last
-            post. Changing the cutoff unchecks everyone. X allows {UNFOLLOW_LIMIT_PER_WINDOW} unfollows per
-            15 minutes per user; the queue waits a random {formatGapRange()} between calls so it stays well
-            under that.
+            post. Changing the cutoff unchecks everyone; you can still filter and add more accounts while
+            the queue runs. X allows {UNFOLLOW_LIMIT_PER_WINDOW} unfollows per 15 minutes per user; the
+            queue waits a random {formatGapRange()} between calls so it stays well under that.
           </p>
         </section>
 
@@ -620,7 +423,7 @@ export function PruneApp({
             variant="outline"
             size="sm"
             onClick={checkAllFiltered}
-            disabled={selectableFiltered.length === 0 || busy}
+            disabled={selectableFiltered.length === 0}
           >
             Check all
           </Button>
@@ -629,7 +432,7 @@ export function PruneApp({
             variant="outline"
             size="sm"
             onClick={uncheckAllFiltered}
-            disabled={selectedFiltered.length === 0 || busy}
+            disabled={selectedFiltered.length === 0}
           >
             Uncheck all
           </Button>
@@ -639,27 +442,6 @@ export function PruneApp({
               : `${filtered.length} of ${rows.length} match · ${selectedFiltered.length} selected · ${whitelistedFilteredCount} whitelisted`}
           </span>
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            {queueStatus ? (
-              <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                {job.kind === "working" ? <LoaderCircleIcon className="size-4 animate-spin" /> : null}
-                {queueStatus}
-              </span>
-            ) : null}
-            {job.kind === "paused" ? (
-              <Button type="button" variant="outline" size="sm" onClick={resumeQueue}>
-                Resume queue
-              </Button>
-            ) : null}
-            {busy ? (
-              <Button type="button" variant="outline" size="sm" onClick={pauseQueue}>
-                Pause
-              </Button>
-            ) : null}
-            {job.kind !== "idle" ? (
-              <Button type="button" variant="ghost" size="sm" onClick={stopQueue}>
-                Stop queue
-              </Button>
-            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -673,15 +455,18 @@ export function PruneApp({
               type="button"
               variant="destructive"
               size="sm"
-              disabled={selectedFiltered.length === 0}
-              onClick={() => setConfirm({ open: true, mode: "selected", rows: selectedFiltered })}
+              disabled={selectedForUnfollow.length === 0}
+              onClick={() =>
+                setConfirm({ open: true, mode: "selected", rows: selectedForUnfollow })
+              }
             >
               Unfollow all (selected)
             </Button>
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <div className="min-h-0 min-w-0 flex-1 overflow-auto">
           {rows.length === 0 ? (
             <div className="px-4 py-10 text-sm text-muted-foreground">
               Choose a CSV from disk (or load the sample). The file is parsed here with FileReader and is
@@ -704,7 +489,7 @@ export function PruneApp({
                         else uncheckAllFiltered();
                       }}
                       aria-label="Check all filtered"
-                      disabled={busy || selectableFiltered.length === 0}
+                      disabled={selectableFiltered.length === 0}
                     />
                   </TableHead>
                   <TableHead>Handle</TableHead>
@@ -717,6 +502,7 @@ export function PruneApp({
               <TableBody>
                 {filtered.map((row) => {
                   const listed = whitelisted.has(row.accountId);
+                  const queued = queuedIds.has(row.accountId);
                   const checked = !listed && selectedIds.has(row.accountId);
                   const url = profileUrl(row);
                   return (
@@ -730,7 +516,7 @@ export function PruneApp({
                           checked={checked}
                           onCheckedChange={(value) => toggleOne(row.accountId, Boolean(value))}
                           aria-label={`Select ${displayHandle(row.handle)}`}
-                          disabled={busy || listed}
+                          disabled={listed}
                         />
                       </TableCell>
                       <TableCell className="font-medium">{displayHandle(row.handle)}</TableCell>
@@ -742,6 +528,11 @@ export function PruneApp({
                         {listed ? (
                           <Badge variant="outline" className="ml-1">
                             whitelisted
+                          </Badge>
+                        ) : null}
+                        {queued ? (
+                          <Badge variant="secondary" className="ml-1">
+                            queued
                           </Badge>
                         ) : null}
                       </TableCell>
@@ -781,7 +572,7 @@ export function PruneApp({
                             type="button"
                             variant="destructive"
                             size="xs"
-                            disabled={listed}
+                            disabled={listed || queued}
                             onClick={() => setConfirm({ open: true, mode: "one", row })}
                           >
                             Unfollow
@@ -794,6 +585,19 @@ export function PruneApp({
               </TableBody>
             </Table>
           )}
+        </div>
+          <UnfollowQueuePanel
+            className="max-h-[min(42vh,24rem)] lg:max-h-none"
+            items={queuedRows}
+            runState={job.kind}
+            statusText={queueStatus}
+            lockedAccountId={inFlightId}
+            sessionUnfollowed={sessionUnfollowed}
+            onPause={pauseQueue}
+            onPlay={resumeQueue}
+            onClear={clearQueue}
+            onRemove={removeQueued}
+          />
         </div>
       </div>
 
@@ -812,9 +616,10 @@ export function PruneApp({
             </DialogTitle>
             <DialogDescription>
               X limits unfollows to {UNFOLLOW_LIMIT_PER_WINDOW} per 15 minutes per user. This adds{" "}
-              {confirmCount} {confirmCount === 1 ? "account" : "accounts"} to a client-side queue that
-              waits a random {formatGapRange()} between calls (and longer if X returns 429). It cannot be
-              undone from this tool.
+              {confirmCount} {confirmCount === 1 ? "account" : "accounts"} to the queue on the right.
+              You can keep filtering and add more, or remove people before they are unfollowed. The
+              queue waits a random {formatGapRange()} between calls (and longer if X returns 429). A
+              completed unfollow cannot be undone from this tool.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -824,7 +629,10 @@ export function PruneApp({
             <Button
               type="button"
               variant="destructive"
-              onClick={() => enqueueUnfollows(confirmTargets(confirm))}
+              onClick={() => {
+                enqueueUnfollows(confirmTargets(confirm));
+                setConfirm({ open: false });
+              }}
             >
               Add to queue
             </Button>
