@@ -25,8 +25,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ActivityYearChart } from "@/components/activity-year-chart";
 import { UnfollowQueuePanel } from "@/components/unfollow-queue-panel";
 import { useUnfollowQueue } from "@/hooks/use-unfollow-queue";
+import { cutoffAfterYearLocal } from "@/lib/activity-by-year";
 import { parseFollowsCsv } from "@/lib/csv";
 import {
   CUTOFF_MAX_LOCAL,
@@ -299,17 +301,23 @@ export function PruneApp({
   })();
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="border-b px-4 py-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="shrink-0 border-b px-4 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="min-w-[12rem] shrink-0">
               <h1 className="text-lg font-semibold tracking-tight">X Follow Manager</h1>
               <p className="text-sm text-muted-foreground">
                 CSV stays in this browser · unfollow via the X API as {displayHandle(user.username)}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <ActivityYearChart
+              className="min-w-[16rem] flex-1"
+              rows={rows}
+              cutoff={cutoffDate}
+              onSelectYear={(year) => setCutoff(clampCutoffLocal(cutoffAfterYearLocal(year)))}
+            />
+            <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
               <Badge variant="outline">{displayHandle(user.username)}</Badge>
               <span className="text-xs text-muted-foreground">id {user.id}</span>
               <Button type="button" variant="outline" size="sm" onClick={onLogout}>
@@ -319,7 +327,7 @@ export function PruneApp({
           </div>
         </header>
 
-        <section className="flex flex-col gap-3 border-b px-4 py-3">
+        <section className="flex shrink-0 flex-col gap-3 border-b px-4 py-3">
           <div className="flex flex-wrap items-end gap-3">
             <div className="grid gap-1.5">
               <Label htmlFor="csv-file">Follows CSV</Label>
@@ -396,7 +404,7 @@ export function PruneApp({
         </section>
 
         {loadError ? (
-          <div className="px-4 pt-3">
+          <div className="shrink-0 px-4 pt-3">
             <Alert variant="destructive">
               <AlertCircleIcon />
               <AlertTitle>Could not load CSV</AlertTitle>
@@ -406,7 +414,7 @@ export function PruneApp({
         ) : null}
 
         {actionError ? (
-          <div className="px-4 pt-3">
+          <div className="shrink-0 px-4 pt-3">
             <Alert variant="destructive">
               <AlertCircleIcon />
               <AlertTitle>Unfollow did not succeed</AlertTitle>
@@ -417,7 +425,7 @@ export function PruneApp({
           </div>
         ) : null}
 
-        <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2">
           <Button
             type="button"
             variant="outline"
@@ -465,7 +473,7 @@ export function PruneApp({
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
         <div className="min-h-0 min-w-0 flex-1 overflow-auto">
           {rows.length === 0 ? (
             <div className="px-4 py-10 text-sm text-muted-foreground">
@@ -587,7 +595,6 @@ export function PruneApp({
           )}
         </div>
           <UnfollowQueuePanel
-            className="max-h-[min(42vh,24rem)] lg:max-h-none"
             items={queuedRows}
             runState={job.kind}
             statusText={queueStatus}
