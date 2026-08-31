@@ -136,3 +136,78 @@ export function formatWait(ms: number): string {
   if (minutes <= 0) return `${seconds}s`;
   return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
 }
+
+export type QueueFinishEstimate = {
+  minMs: number;
+  maxMs: number;
+  minAt: number;
+  maxAt: number;
+};
+
+export function estimateQueueFinish({
+  remainingCount,
+  now,
+  remainingFirstWaitMs = null,
+  inFlight = false,
+}: {
+  remainingCount: number;
+  now: number;
+  remainingFirstWaitMs?: number | null;
+  inFlight?: boolean;
+}): QueueFinishEstimate | null {
+  if (remainingCount <= 0) return null;
+
+  let minMs: number;
+  let maxMs: number;
+  if (remainingFirstWaitMs != null) {
+    const rest = Math.max(remainingCount - 1, 0);
+    minMs = remainingFirstWaitMs + rest * UNFOLLOW_GAP_MIN_MS;
+    maxMs = remainingFirstWaitMs + rest * UNFOLLOW_GAP_MAX_MS;
+  } else if (inFlight) {
+    const rest = Math.max(remainingCount - 1, 0);
+    minMs = rest * UNFOLLOW_GAP_MIN_MS;
+    maxMs = rest * UNFOLLOW_GAP_MAX_MS;
+  } else {
+    minMs = remainingCount * UNFOLLOW_GAP_MIN_MS;
+    maxMs = remainingCount * UNFOLLOW_GAP_MAX_MS;
+  }
+
+  return {
+    minMs,
+    maxMs,
+    minAt: now + minMs,
+    maxAt: now + maxMs,
+  };
+}
+
+function formatClock(at: number): string {
+  return new Intl.DateTimeFormat("en-AU", {
+    timeStyle: "short",
+  }).format(new Date(at));
+}
+
+function sameLocalDay(a: number, b: number): boolean {
+  const left = new Date(a);
+  const right = new Date(b);
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+export function formatFinishClockRange(minAt: number, maxAt: number): string {
+  const earliest = formatClock(minAt);
+  const latest = formatClock(maxAt);
+  if (earliest === latest && sameLocalDay(minAt, maxAt)) return earliest;
+  if (sameLocalDay(minAt, maxAt)) return `${earliest} – ${latest}`;
+  const laterDay = new Intl.DateTimeFormat("en-AU", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(maxAt));
+  return `${earliest} – ${laterDay}`;
+}
+
+export function formatDurationRange(minMs: number, maxMs: number): string {
+  return `${formatWait(minMs)} – ${formatWait(maxMs)}`;
+}
