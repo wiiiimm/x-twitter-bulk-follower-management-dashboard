@@ -61,8 +61,8 @@ accountId,handle,name,lastPostAt,status,url
 
 ## Use
 
-1. Set a cutoff datetime (local), or use the 30 days / 90 days / 1 year / Now shortcuts. The table shows accounts whose last post is **before** that cutoff, plus anyone with no `lastPostAt`.
-2. Changing the cutoff unchecks everyone, then shows the new filtered set.
+1. Set a cutoff datetime (local), or use the 30 days / 90 days / 1 year / Now shortcuts. The table shows accounts whose last post is **before** that cutoff, plus anyone with no `lastPostAt`. The header bar chart counts loaded accounts by the UTC year they were last active (year-start on the x-axis). Darker bars are fully before the cutoff; click a year to set the cutoff to 1 January of the next year.
+2. Changing the cutoff unchecks everyone, then shows the new filtered set. The follows table and the unfollow queue each scroll on their own, so the header, filters, and queue stay on screen.
 3. **Check all** / **Uncheck all** apply only to the current filtered rows that are not whitelisted.
 4. Click the profile URL in a row to open that X profile in a new tab. Rows, handles, and other cells do not open profiles.
 5. **Whitelist** (or **Whitelist all (selected)**) stores account IDs in `localStorage`. Whitelisted rows stay visible, cannot be checked, are skipped by Check all, and have Unfollow disabled. **Remove from whitelist** turns that back on.
