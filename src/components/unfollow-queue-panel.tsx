@@ -41,11 +41,11 @@ export function UnfollowQueuePanel({
   return (
     <aside
       className={cn(
-        "flex min-h-0 w-full shrink-0 flex-col border-t bg-background lg:w-80 lg:self-stretch lg:border-t-0 lg:border-l",
+        "flex h-[min(42vh,24rem)] min-h-0 w-full shrink-0 flex-col overflow-hidden border-t bg-background lg:h-auto lg:w-80 lg:min-w-80 lg:self-stretch lg:border-t-0 lg:border-l",
         className,
       )}
     >
-      <div className="border-b bg-foreground px-4 py-5 text-background">
+      <div className="shrink-0 border-b bg-foreground px-4 py-5 text-background">
         <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-background/65">
           This session
         </p>
@@ -58,7 +58,7 @@ export function UnfollowQueuePanel({
         </p>
       </div>
 
-      <div className="flex items-center gap-1.5 border-b px-3 py-2.5">
+      <div className="flex shrink-0 items-center gap-1.5 border-b px-3 py-2.5">
         <h2 className="min-w-0 flex-1 text-sm font-medium">Unfollow queue</h2>
         <Button
           type="button"
@@ -92,7 +92,7 @@ export function UnfollowQueuePanel({
       </div>
 
       {statusText ? (
-        <p className="flex items-center gap-1.5 border-b px-3 py-2 text-xs text-muted-foreground">
+        <p className="flex shrink-0 items-center gap-1.5 border-b px-3 py-2 text-xs text-muted-foreground">
           {runState === "working" ? (
             <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
           ) : null}
@@ -100,7 +100,7 @@ export function UnfollowQueuePanel({
         </p>
       ) : null}
 
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea className="h-0 min-h-0 flex-1">
         {empty ? (
           <p className="px-3 py-6 text-xs text-muted-foreground">
             Add accounts with Unfollow or Unfollow all, then press play.
