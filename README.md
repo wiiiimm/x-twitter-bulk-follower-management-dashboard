@@ -1,8 +1,8 @@
-# X/Twitter Bulk Follower Management Dashboard
+# X Follow Manager
 
-This is a bulk follower management dashboard for X (Twitter). Paste a user OAuth 2.0 token, load a follows CSV in the browser, filter quiet accounts, and unfollow via the official X API.
+X Follow Manager is a bulk follower management dashboard for X (Twitter). Sign in with your own X developer app (OAuth 2.0 PKCE), load a follows CSV in the browser, filter quiet accounts, and unfollow via the official X API.
 
-The CSV never leaves the browser (`FileReader`). The token is stored in `window.localStorage` only. Same-origin API routes forward `Authorization` to X; they do not read a server env token and do not persist the token.
+The CSV never leaves the browser (`FileReader`). App keys and the user token stay in `window.localStorage`. Same-origin API routes forward requests to X; they do not store secrets on disk and do not use a server env token.
 
 ## Run locally
 
@@ -17,20 +17,19 @@ Open [http://127.0.0.1:43147](http://127.0.0.1:43147).
 
 No `.env` token is required. `.gitignore` ignores `.env*`.
 
-## Sign in (user OAuth token)
+## Sign in (generate an OAuth 2.0 user token)
 
-The login screen asks for an **X API user OAuth 2.0 access token** (not an app-only bearer token), with scopes:
-
-- `follows.write`
-- `tweet.read`
-- `users.read`
-
-How to get one:
+Unfollow needs a **user OAuth 2.0 access token**. Paste your app’s **Client ID** and **Client Secret** and this app generates one via Authorization Code with PKCE:
 
 1. Create an app in the [X developer portal](https://developer.x.com/).
-2. Enable user authentication (OAuth 2.0 Authorization Code with PKCE).
-3. Request a user access token with the scopes above (for example with `twurl` or a small local PKCE flow).
-4. Paste the token on the login screen. Logout clears it from local storage.
+2. In **User authentication settings**, enable **OAuth 2.0** (Authorization Code with PKCE). App type: **Web App**.
+3. Copy **Client ID** and **Client Secret** onto the login screen. These are not the OAuth 1.0a API Key / API Secret, and not an app-only bearer token.
+4. Add the Website URL and Callback URL shown on the login screen (they match the origin you are using, including local `http://127.0.0.1:43147/oauth/callback`).
+5. Click **Generate access token**. X asks you to authorise scopes `tweet.read`, `users.read`, `follows.write`, and `offline.access`. The app exchanges the code for a user access token (and refresh token) and stores them in local storage.
+
+Logout clears the user session and keeps saved Client ID / Secret. **Clear saved Client ID and Secret** on the login screen removes those too.
+
+If you already have a user OAuth 2.0 access token, expand **Already have a user OAuth 2.0 access token?** and paste it.
 
 The dashboard then calls `GET https://api.x.com/2/users/me` to resolve the signed-in user. Unfollow uses:
 
@@ -57,10 +56,12 @@ accountId,handle,name,lastPostAt,status,url
 
 1. Set a cutoff datetime (local), or use the 30 days / 90 days / 1 year / Now shortcuts. The table shows accounts whose last post is **before** that cutoff, plus anyone with no `lastPostAt`.
 2. Changing the cutoff unchecks everyone, then shows the new filtered set.
-3. **Check all** / **Uncheck all** apply only to the current filtered rows.
-4. Click a row, handle, or profile URL to open it. The app tries an iframe first. x.com sends `X-Frame-Options: SAMEORIGIN`, so the iframe is refused and the profile opens in a new tab.
-5. **Unfollow** on a row, or **Unfollow all (selected)**. The bulk action asks you to confirm and includes the selected count before it calls the backend.
-6. Each unfollow is `DELETE` for that `accountId`. A successful row is removed and unchecked. API errors stay on screen.
+3. **Check all** / **Uncheck all** apply only to the current filtered rows that are not whitelisted.
+4. Click the profile URL in a row to open that X profile in a new tab. Rows, handles, and other cells do not open profiles.
+5. **Whitelist** (or **Whitelist all (selected)**) stores account IDs in `localStorage`. Whitelisted rows stay visible, cannot be checked, are skipped by Check all, and have Unfollow disabled. **Remove from whitelist** turns that back on.
+6. **Unfollow** or **Unfollow all (selected)** adds accounts to a client-side queue (after confirm). X’s documented limit for `DELETE /2/users/:source_user_id/following/:target_user_id` is **50 requests per 15 minutes per user**. The queue waits a **random 45–110 seconds** between calls (about 8–20 per 15 minutes), including before the first call, and if X returns **429** it waits for `retry-after` / `x-rate-limit-reset` plus extra jitter. Pause and Stop control the queue. A successful row is removed. Other API errors stay on screen and the queue continues.
+
+GET `/2/users/me` is 75/15 min per user and is only used at login, not on every unfollow.
 
 ## Scripts
 
