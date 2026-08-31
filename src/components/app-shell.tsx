@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 
 import { LoginScreen } from "@/components/login-screen";
 import { PruneApp, type SignedInUser } from "@/components/prune-app";
-import { clearAccessToken, readAccessToken, writeAccessToken } from "@/lib/browser-token";
+import { clearUserSession, readAccessToken, writeStoredTokens } from "@/lib/browser-token";
+import { consumeOAuthRedirectError } from "@/lib/oauth";
+import { refreshUserAccessToken } from "@/lib/oauth-client";
 
 type AuthState =
   | { kind: "loading" }
@@ -35,7 +37,7 @@ function errorFromPayload(payload: unknown, fallback: string): string {
 }
 
 async function resolveUser(token: string): Promise<
-  { ok: true; user: SignedInUser } | { ok: false; error: string }
+  { ok: true; user: SignedInUser } | { ok: false; error: string; status: number }
 > {
   const response = await fetch("/api/me", {
     method: "GET",
@@ -53,14 +55,28 @@ async function resolveUser(token: string): Promise<
   if (!response.ok) {
     return {
       ok: false,
+      status: response.status,
       error: errorFromPayload(payload, `Could not resolve the signed-in user (${response.status}).`),
     };
   }
   const user = parseUserPayload(payload);
   if (!user) {
-    return { ok: false, error: "X API returned an unexpected user payload." };
+    return { ok: false, status: 502, error: "X API returned an unexpected user payload." };
   }
   return { ok: true, user };
+}
+
+async function resolveUserWithRefresh(token: string): Promise<
+  { ok: true; user: SignedInUser } | { ok: false; error: string }
+> {
+  const first = await resolveUser(token);
+  if (first.ok) return first;
+  if (first.status !== 401) return { ok: false, error: first.error };
+  const refreshed = await refreshUserAccessToken();
+  if (!refreshed) return { ok: false, error: first.error };
+  const second = await resolveUser(refreshed);
+  if (second.ok) return second;
+  return { ok: false, error: second.error };
 }
 
 export function AppShell() {
@@ -72,16 +88,17 @@ export function AppShell() {
 
     async function restoreSession() {
       await Promise.resolve();
+      const redirectError = consumeOAuthRedirectError();
       const stored = readAccessToken();
       if (!stored) {
-        if (!cancelled) setAuth({ kind: "anonymous", error: null });
+        if (!cancelled) setAuth({ kind: "anonymous", error: redirectError });
         return;
       }
-      const result = await resolveUser(stored);
+      const result = await resolveUserWithRefresh(stored);
       if (cancelled) return;
       if (!result.ok) {
-        clearAccessToken();
-        setAuth({ kind: "anonymous", error: result.error });
+        clearUserSession();
+        setAuth({ kind: "anonymous", error: redirectError ?? result.error });
         return;
       }
       setAuth({ kind: "authenticated", user: result.user });
@@ -98,16 +115,16 @@ export function AppShell() {
     const result = await resolveUser(token);
     setBusy(false);
     if (!result.ok) {
-      clearAccessToken();
+      clearUserSession();
       setAuth({ kind: "anonymous", error: result.error });
       return;
     }
-    writeAccessToken(token);
+    writeStoredTokens({ accessToken: token, refreshToken: null, expiresAt: null });
     setAuth({ kind: "authenticated", user: result.user });
   }
 
   function handleLogout() {
-    clearAccessToken();
+    clearUserSession();
     setAuth({ kind: "anonymous", error: null });
   }
 
@@ -115,7 +132,7 @@ export function AppShell() {
     case "loading":
       return (
         <main className="flex flex-1 items-center justify-center px-4 text-sm text-muted-foreground">
-          Checking saved token…
+          Checking saved session…
         </main>
       );
     case "anonymous":

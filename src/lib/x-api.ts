@@ -1,5 +1,7 @@
 import "server-only";
 
+import { emptyRateLimit, readRateLimitHeaders, type RateLimitInfo } from "@/lib/unfollow-pace";
+
 export type XUser = {
   id: string;
   username: string;
@@ -25,6 +27,7 @@ export type UnfollowSuccess = {
   targetUserId: string;
   sourceUserId: string;
   following: boolean | null;
+  rateLimit: RateLimitInfo;
 };
 
 export type UnfollowFailure = {
@@ -33,6 +36,7 @@ export type UnfollowFailure = {
   status: number;
   error: string;
   details: unknown;
+  rateLimit: RateLimitInfo;
 };
 
 export type UnfollowResult = UnfollowSuccess | UnfollowFailure;
@@ -82,9 +86,13 @@ export function formatXApiError(status: number, body: unknown, action: "me" | "u
   const suffix = (() => {
     switch (action) {
       case "unfollow":
-        return status === 403
-          ? " Self-serve X apps are often blocked from follows.write even though the endpoint is documented."
-          : "";
+        if (status === 403) {
+          return " Self-serve X apps are often blocked from follows.write even though the endpoint is documented.";
+        }
+        if (status === 429) {
+          return " Unfollow is limited to 50 requests per 15 minutes per user. The queue waits a random interval well under that limit.";
+        }
+        return "";
       case "me":
         return "";
       default: {
@@ -163,29 +171,39 @@ export async function fetchAuthenticatedUser(token: string): Promise<MeResult> {
   return { ok: true, user };
 }
 
-export async function unfollowUser(token: string, targetUserId: string): Promise<UnfollowResult> {
-  const me = await fetchAuthenticatedUser(token);
-  if (!me.ok) {
-    return {
-      ok: false,
-      targetUserId,
-      status: me.status,
-      error: me.error,
-      details: me.details,
-    };
+export async function unfollowUser(
+  token: string,
+  targetUserId: string,
+  sourceUserId?: string,
+): Promise<UnfollowResult> {
+  let resolvedSourceId = sourceUserId?.trim() ?? "";
+  if (!resolvedSourceId) {
+    const me = await fetchAuthenticatedUser(token);
+    if (!me.ok) {
+      return {
+        ok: false,
+        targetUserId,
+        status: me.status,
+        error: me.error,
+        details: me.details,
+        rateLimit: emptyRateLimit(),
+      };
+    }
+    resolvedSourceId = me.user.id;
   }
 
-  if (targetUserId === me.user.id) {
+  if (targetUserId === resolvedSourceId) {
     return {
       ok: false,
       targetUserId,
       status: 400,
       error: "Refusing to unfollow the signed-in account.",
       details: null,
+      rateLimit: emptyRateLimit(),
     };
   }
 
-  const url = `https://api.x.com/2/users/${encodeURIComponent(me.user.id)}/following/${encodeURIComponent(targetUserId)}`;
+  const url = `https://api.x.com/2/users/${encodeURIComponent(resolvedSourceId)}/following/${encodeURIComponent(targetUserId)}`;
   let response: Response;
   try {
     response = await fetch(url, {
@@ -202,9 +220,11 @@ export async function unfollowUser(token: string, targetUserId: string): Promise
       status: 502,
       error: error instanceof Error ? error.message : "Network error calling the X API.",
       details: null,
+      rateLimit: emptyRateLimit(),
     };
   }
 
+  const rateLimit = readRateLimitHeaders(response.headers);
   const parsed = await parseResponseBody(response);
   if (!response.ok) {
     return {
@@ -213,6 +233,7 @@ export async function unfollowUser(token: string, targetUserId: string): Promise
       status: response.status,
       error: formatXApiError(response.status, parsed, "unfollow"),
       details: parsed,
+      rateLimit,
     };
   }
 
@@ -229,7 +250,8 @@ export async function unfollowUser(token: string, targetUserId: string): Promise
   return {
     ok: true,
     targetUserId,
-    sourceUserId: me.user.id,
+    sourceUserId: resolvedSourceId,
     following,
+    rateLimit,
   };
 }
