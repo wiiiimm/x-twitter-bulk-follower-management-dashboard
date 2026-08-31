@@ -149,10 +149,11 @@ export function PruneApp({
   }, [cutoff]);
 
   useEffect(() => {
-    if (job.kind !== "waiting") return;
-    const id = window.setInterval(() => setNow(Date.now()), 250);
+    if (job.kind !== "waiting" && queuedRows.length === 0) return;
+    const ms = job.kind === "waiting" ? 250 : 1000;
+    const id = window.setInterval(() => setNow(Date.now()), ms);
     return () => window.clearInterval(id);
-  }, [job.kind]);
+  }, [job.kind, queuedRows.length]);
 
   const cutoffDate = useMemo(() => parseCutoff(cutoff), [cutoff]);
 
@@ -600,6 +601,10 @@ export function PruneApp({
             statusText={queueStatus}
             lockedAccountId={inFlightId}
             sessionUnfollowed={sessionUnfollowed}
+            now={now}
+            remainingFirstWaitMs={
+              job.kind === "waiting" ? Math.max(0, job.until - now) : null
+            }
             onPause={pauseQueue}
             onPlay={resumeQueue}
             onClear={clearQueue}
