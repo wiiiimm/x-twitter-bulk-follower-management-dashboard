@@ -6,6 +6,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { displayHandle, type FollowRow } from "@/lib/follows";
+import {
+  estimateQueueFinish,
+  formatDurationRange,
+  formatFinishClockRange,
+} from "@/lib/unfollow-pace";
 import { cn } from "@/lib/utils";
 
 export type QueueRunState = "idle" | "waiting" | "working" | "paused";
@@ -16,6 +21,8 @@ export function UnfollowQueuePanel({
   statusText,
   lockedAccountId,
   sessionUnfollowed,
+  now,
+  remainingFirstWaitMs = null,
   className,
   onPause,
   onPlay,
@@ -27,6 +34,8 @@ export function UnfollowQueuePanel({
   statusText: string | null;
   lockedAccountId: string | null;
   sessionUnfollowed: number;
+  now: number;
+  remainingFirstWaitMs?: number | null;
   className?: string;
   onPause: () => void;
   onPlay: () => void;
@@ -37,6 +46,13 @@ export function UnfollowQueuePanel({
   const empty = items.length === 0;
   const label =
     sessionUnfollowed === 1 ? "account unfollowed" : "accounts unfollowed";
+  const eta = estimateQueueFinish({
+    remainingCount: items.length,
+    now,
+    remainingFirstWaitMs,
+    inFlight: runState === "working",
+  });
+  const etaPrefix = running ? "Est. done" : "If started now";
 
   return (
     <aside
@@ -56,6 +72,17 @@ export function UnfollowQueuePanel({
         <p className="mt-3 text-xs text-background/55">
           {empty ? "Queue is empty" : `${items.length} waiting in queue`}
         </p>
+        {eta ? (
+          <p className="mt-2 text-xs text-background/70">
+            {etaPrefix}{" "}
+            <span className="font-medium text-background">
+              {formatFinishClockRange(eta.minAt, eta.maxAt)}
+            </span>
+            <span className="mt-0.5 block text-background/55">
+              {formatDurationRange(eta.minMs, eta.maxMs)}
+            </span>
+          </p>
+        ) : null}
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5 border-b px-3 py-2.5">
