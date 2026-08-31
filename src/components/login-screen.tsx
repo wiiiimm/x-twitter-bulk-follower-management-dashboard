@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useSyncExternalStore, type FormEvent } from "react";
-import { AlertCircleIcon, CheckIcon, CopyIcon } from "lucide-react";
+import { AlertCircleIcon, CheckIcon, CopyIcon, InfoIcon } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -160,8 +160,10 @@ export function LoginScreen({
         <div>
           <h2 className="text-sm font-medium">1. OAuth 2.0 Client ID and Client Secret</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            In the X developer portal, open your app → User authentication settings. Enable OAuth 2.0
-            (Authorization Code with PKCE), app type Web App, then copy Client ID and Client Secret. Not
+            In the X developer portal, open your app → <strong>User authentication settings</strong>.
+            Enable OAuth 2.0 (Authorization Code with PKCE), Type of App{" "}
+            <strong>Web App, Automated App or Bot</strong>, app permissions{" "}
+            <strong>Read and write</strong>, then copy the OAuth 2.0 Client ID and Client Secret. Not
             the API Key, API Secret, or app-only bearer token.
           </p>
         </div>
@@ -198,8 +200,9 @@ export function LoginScreen({
         <div>
           <h2 className="text-sm font-medium">2. Callback URLs in the portal</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Add these exact URLs under User authentication settings, then generate a token. Scopes
-            requested: tweet.read, users.read, follows.write, offline.access.
+            Add this exact Callback URI under User authentication settings — including{" "}
+            <span className="font-mono">/oauth/callback</span>. You can keep an older site-root URL
+            listed as well. Scopes requested: tweet.read, users.read, follows.write, offline.access.
           </p>
         </div>
         <div className="grid gap-1.5">
@@ -234,6 +237,17 @@ export function LoginScreen({
             </Button>
           </div>
         </div>
+        <Alert>
+          <InfoIcon />
+          <AlertTitle>If X says you weren’t able to give access</AlertTitle>
+          <AlertDescription>
+            That page is X refusing the authorize request. It is not this app failing to mint a token.
+            A Development app is enough for the X account that owns the developer project. Other X
+            accounts cannot authorize until the app is in Production. The usual causes are a Callback
+            URI that does not match this exact URL, User authentication settings not saved, or pasting
+            the API Key instead of the OAuth 2.0 Client ID.
+          </AlertDescription>
+        </Alert>
         <Button
           type="button"
           disabled={!canStartOauth || oauthBusy || busy}
