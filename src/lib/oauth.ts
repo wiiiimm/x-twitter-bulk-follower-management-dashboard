@@ -1,4 +1,6 @@
-export const X_AUTHORIZE_URL = "https://x.com/i/oauth2/authorize";
+// twitter.com is the documented authorize host. x.com/i/oauth2/authorize often
+// fails with "You weren't able to give access to the App" before a code is issued.
+export const X_AUTHORIZE_URL = "https://twitter.com/i/oauth2/authorize";
 export const X_TOKEN_URL = "https://api.x.com/2/oauth2/token";
 
 export const OAUTH_SCOPES = [
