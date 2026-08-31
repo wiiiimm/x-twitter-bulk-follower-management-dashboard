@@ -1,6 +1,6 @@
 "use client";
 
-import { LoaderCircleIcon, XIcon } from "lucide-react";
+import { LoaderCircleIcon, PauseIcon, PlayIcon, XIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,27 +15,28 @@ export function UnfollowQueuePanel({
   runState,
   statusText,
   lockedAccountId,
-  completed,
-  total,
+  sessionUnfollowed,
   className,
   onPause,
-  onResume,
-  onStop,
+  onPlay,
+  onClear,
   onRemove,
 }: {
   items: FollowRow[];
   runState: QueueRunState;
   statusText: string | null;
   lockedAccountId: string | null;
-  completed: number;
-  total: number;
+  sessionUnfollowed: number;
   className?: string;
   onPause: () => void;
-  onResume: () => void;
-  onStop: () => void;
+  onPlay: () => void;
+  onClear: () => void;
   onRemove: (accountId: string) => void;
 }) {
   const running = runState === "waiting" || runState === "working";
+  const empty = items.length === 0;
+  const label =
+    sessionUnfollowed === 1 ? "account unfollowed" : "accounts unfollowed";
 
   return (
     <aside
@@ -44,29 +45,52 @@ export function UnfollowQueuePanel({
         className,
       )}
     >
-      <div className="flex items-start justify-between gap-2 border-b px-3 py-2.5">
-        <div className="min-w-0">
-          <h2 className="text-sm font-medium">Unfollow queue</h2>
-          <p className="text-xs text-muted-foreground">
-            {completed}/{total} done · {items.length} waiting
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap justify-end gap-1">
-          {runState === "paused" ? (
-            <Button type="button" variant="outline" size="xs" onClick={onResume}>
-              Resume
-            </Button>
-          ) : null}
-          {running ? (
-            <Button type="button" variant="outline" size="xs" onClick={onPause}>
-              Pause
-            </Button>
-          ) : null}
-          <Button type="button" variant="ghost" size="xs" onClick={onStop}>
-            Stop
-          </Button>
-        </div>
+      <div className="border-b bg-foreground px-4 py-5 text-background">
+        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-background/65">
+          This session
+        </p>
+        <p className="mt-2 font-mono text-5xl font-semibold tabular-nums leading-none tracking-tight">
+          {sessionUnfollowed}
+        </p>
+        <p className="mt-2 text-sm text-background/80">{label}</p>
+        <p className="mt-3 text-xs text-background/55">
+          {empty ? "Queue is empty" : `${items.length} waiting in queue`}
+        </p>
       </div>
+
+      <div className="flex items-center gap-1.5 border-b px-3 py-2.5">
+        <h2 className="min-w-0 flex-1 text-sm font-medium">Unfollow queue</h2>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-xs"
+          disabled={empty || running}
+          aria-label="Play queue"
+          onClick={onPlay}
+        >
+          <PlayIcon />
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-xs"
+          disabled={empty || !running}
+          aria-label="Pause queue"
+          onClick={onPause}
+        >
+          <PauseIcon />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          disabled={empty}
+          onClick={onClear}
+        >
+          Clear
+        </Button>
+      </div>
+
       {statusText ? (
         <p className="flex items-center gap-1.5 border-b px-3 py-2 text-xs text-muted-foreground">
           {runState === "working" ? (
@@ -75,9 +99,12 @@ export function UnfollowQueuePanel({
           {statusText}
         </p>
       ) : null}
+
       <ScrollArea className="min-h-0 flex-1">
-        {items.length === 0 ? (
-          <p className="px-3 py-6 text-xs text-muted-foreground">Queue is empty.</p>
+        {empty ? (
+          <p className="px-3 py-6 text-xs text-muted-foreground">
+            Add accounts with Unfollow or Unfollow all, then press play.
+          </p>
         ) : (
           <ol className="flex flex-col">
             {items.map((row, index) => {
@@ -96,7 +123,9 @@ export function UnfollowQueuePanel({
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{displayHandle(row.handle)}</p>
-                    <p className="truncate text-xs text-muted-foreground">{row.name || row.accountId}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {row.name || row.accountId}
+                    </p>
                     {current ? (
                       <Badge variant="secondary" className="mt-1">
                         {runState === "working" ? "Unfollowing" : "Next"}
