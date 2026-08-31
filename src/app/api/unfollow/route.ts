@@ -19,19 +19,19 @@ export async function POST(request: Request) {
     );
   }
 
-  const targetUserId =
-    body && typeof body === "object" && "targetUserId" in body
-      ? (body as { targetUserId?: unknown }).targetUserId
-      : undefined;
+  const record = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
+  const targetUserId = record && typeof record.targetUserId === "string" ? record.targetUserId : "";
+  const sourceUserId =
+    record && typeof record.sourceUserId === "string" ? record.sourceUserId.trim() : "";
 
-  if (typeof targetUserId !== "string" || !targetUserId.trim()) {
+  if (!targetUserId.trim()) {
     return Response.json(
       { ok: false, error: "targetUserId is required." },
       { status: 400 },
     );
   }
 
-  const result = await unfollowUser(token, targetUserId.trim());
+  const result = await unfollowUser(token, targetUserId.trim(), sourceUserId || undefined);
   if (!result.ok) {
     return Response.json(result, { status: result.status >= 400 ? result.status : 500 });
   }

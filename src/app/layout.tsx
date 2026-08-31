@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "X/Twitter Bulk Follower Management Dashboard",
+  title: "X Follow Manager",
   description:
-    "X/Twitter bulk follower management dashboard: load a follows CSV in the browser and unfollow quiet accounts via the X API.",
+    "X Follow Manager: load a follows CSV in the browser and unfollow quiet accounts via the X API.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
