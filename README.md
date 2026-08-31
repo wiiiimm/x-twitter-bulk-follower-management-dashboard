@@ -27,6 +27,13 @@ Unfollow needs a **user OAuth 2.0 access token**. Paste your app’s **Client ID
 4. Add the Website URL and Callback URL shown on the login screen (they match the origin you are using, including local `http://127.0.0.1:43147/oauth/callback`).
 5. Click **Generate access token**. X asks you to authorise scopes `tweet.read`, `users.read`, `follows.write`, and `offline.access`. The app exchanges the code for a user access token (and refresh token) and stores them in local storage.
 
+If X shows **“You weren’t able to give access to the App”**, the authorize request never issued a code. Development access is enough for the X account that owns the developer project; other people cannot sign in until Production. Check that:
+
+- User authentication settings are saved with OAuth 2.0, Web App, PKCE, and **Read and write**.
+- The Callback URI is exactly `{origin}/oauth/callback` (copy it from the login screen). A site-root URL such as `https://example.com/` will not match.
+- You pasted the OAuth 2.0 **Client ID**, not the OAuth 1.0a API Key.
+- The app sits in a Project (not a standalone app).
+
 Logout clears the user session and keeps saved Client ID / Secret. **Clear saved Client ID and Secret** on the login screen removes those too.
 
 If you already have a user OAuth 2.0 access token, expand **Already have a user OAuth 2.0 access token?** and paste it.
