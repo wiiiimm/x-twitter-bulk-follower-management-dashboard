@@ -131,14 +131,18 @@ export function AppShell() {
   switch (auth.kind) {
     case "loading":
       return (
-        <main className="flex flex-1 items-center justify-center px-4 text-sm text-muted-foreground">
+        <main className="flex min-h-0 flex-1 items-center justify-center overflow-auto px-4 text-sm text-muted-foreground">
           Checking saved session…
         </main>
       );
     case "anonymous":
       return <LoginScreen error={auth.error} busy={busy} onSubmit={(token) => void handleLogin(token)} />;
     case "authenticated":
-      return <PruneApp user={auth.user} onLogout={handleLogout} />;
+      return (
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <PruneApp user={auth.user} onLogout={handleLogout} />
+        </main>
+      );
     default: {
       const exhaustive: never = auth;
       return exhaustive;
